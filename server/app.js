@@ -3,10 +3,26 @@ const multer = require('multer');
 const multerS3 = require('multer-s3');
 const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 const { DynamoDBClient, PutItemCommand, GetItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+const session = require('express-session');
 require('dotenv').config();
 
 const app = express();
-app.use(express.static('public')); 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+// Session and Passport setup
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 // AWS S3 Client Configuration
 const s3Client = new S3Client({
@@ -46,6 +62,55 @@ const upload = multer({
   }),
 });
 
+// Passport local strategy for authentication
+passport.use(new LocalStrategy(
+  async (username, password, done) => {
+    try {
+      const result = await dbClient.send(new GetItemCommand({
+        TableName: 'users',
+        Key: { username: { S: username } }
+      }));
+
+      if (!result.Item || !(await bcrypt.compare(password, result.Item.password.S))) {
+        return done(null, false, { message: 'Invalid username or password' });
+      }
+
+      return done(null, { username });
+    } catch (err) {
+      return done(err);
+    }
+  }
+));
+
+passport.serializeUser((user, done) => {
+  done(null, user.username);
+});
+
+passport.deserializeUser(async (username, done) => {
+  try {
+    const result = await dbClient.send(new GetItemCommand({
+      TableName: 'users',
+      Key: { username: { S: username } }
+    }));
+
+    if (!result.Item) {
+      return done(new Error('User not found'));
+    }
+
+    done(null, { username });
+  } catch (err) {
+    done(err);
+  }
+});
+
+// Middleware to check if user is authenticated
+const isAuthenticated = (req, res, next) => {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ error: 'Unauthorized' });
+};
+
 // Store metadata in DynamoDB
 const storeMetadata = async (s3Key, title, description, tags, uploadTime) => {
   await dbClient.send(new PutItemCommand({
@@ -63,19 +128,15 @@ const storeMetadata = async (s3Key, title, description, tags, uploadTime) => {
 // Retrieve metadata from DynamoDB
 const getMetadata = async (s3Key) => {
   try {
-    console.log(s3Key)
     const result = await dbClient.send(new GetItemCommand({
       TableName: 'image_info',
-      Key: {
-        s3Key: { S: s3Key } // Ensure this matches your DynamoDB schema
-      }
+      Key: { s3Key: { S: s3Key } }
     }));
 
-    // Check if the item exists and return it
     if (!result.Item) {
       return null;
     }
-    
+
     return {
       Title: result.Item.Title ? result.Item.Title.S : '',
       Description: result.Item.Description ? result.Item.Description.S : '',
@@ -96,60 +157,106 @@ const listAllMetadata = async () => {
     title: item.Title.S,
     description: item.Description.S,
     tags: item.Tags.SS,
-    uploadTime: item.UploadTime.S // Include upload time
+    uploadTime: item.UploadTime.S
   }));
 };
 
-// Single image upload route with additional form fields
-app.post('/upload/single', upload.single('image'), async (req, res) => {
-  const s3Key = req.file.key;
-  const title = req.body.title;
-  const description = req.body.description;
-  const tags = req.body.tags ? req.body.tags.split(',') : [];
-  const uploadTime = new Date().toISOString(); // Capture the upload time
+// User Registration
+app.post('/register', async (req, res) => {
+  const { username, password } = req.body;
+  const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Store metadata in DynamoDB
-  await storeMetadata(s3Key, title, description, tags, uploadTime);
-
-  res.json({
-    imageUrl: req.file.location,
-    title,
-    description,
-    tags,
-    uploadTime
-  });
-});
-
-// Multiple image upload route with additional form fields
-app.post('/upload/multiple', upload.array('images', 10), async (req, res) => {
   try {
-    const uploadTime = new Date().toISOString(); // Capture the upload time for all images
-    const promises = req.files.map(async (file) => {
-      const s3Key = file.key;
-      const title = req.body.title || '';
-      const description = req.body.description || '';
-      const tags = req.body.tags ? req.body.tags.split(',') : [];
-
-      // Store metadata in DynamoDB
-      await storeMetadata(s3Key, title, description, tags, uploadTime);
-
-      return {
-        imageUrl: file.location,
-        title,
-        description,
-        tags,
-        uploadTime
-      };
-    });
-
-    const results = await Promise.all(promises);
-
-    res.json(results);
+    await dbClient.send(new PutItemCommand({
+      TableName: 'users',
+      Item: {
+        username: { S: username },
+        password: { S: hashedPassword }
+      }
+    }));
+    res.status(201).json({ message: 'User registered successfully' });
   } catch (err) {
-    console.error('Error uploading multiple images:', err);
-    res.status(500).json({ error: 'Failed to upload images' });
+    console.error('Error registering user:', err);
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
+
+// User Login
+app.post('/login', passport.authenticate('local'), (req, res) => {
+  const token = jwt.sign({ username: req.user.username }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  res.json({ token });
+});
+
+// Logout route
+app.post('/logout', (req, res) => {
+    req.logout((err) => {
+      if (err) return next(err);
+      res.redirect('/login.html');
+    });
+  });
+
+// Single image upload route with additional form fields (authentication required)
+app.post('/upload/single', isAuthenticated, upload.single('image'), async (req, res) => {
+    const s3Key = req.file.key;
+    const title = req.body.title;
+    const description = req.body.description;
+    const tags = req.body.tags ? req.body.tags.split(',') : [];
+    const uploadTime = new Date().toISOString(); // Capture the upload time
+  
+    // Store metadata in DynamoDB
+    await storeMetadata(s3Key, title, description, tags, uploadTime);
+  
+    res.json({
+      imageUrl: req.file.location,
+      title,
+      description,
+      tags,
+      uploadTime
+    });
+  });
+  
+
+// Route to get user info
+app.get('/user', (req, res) => {
+    if (req.isAuthenticated()) {
+      res.json({ username: req.user.username });
+    } else {
+      res.json({});
+    }
+  });
+  
+// I don't even know if this works right now.. ignore for now
+// Multiple image upload route with additional form fields (authentication required)
+app.post('/upload/multiple', isAuthenticated, upload.array('images', 10), async (req, res) => {
+    try {
+      const uploadTime = new Date().toISOString(); // Capture the upload time for all images
+      const promises = req.files.map(async (file) => {
+        const s3Key = file.key;
+        const title = req.body.title || '';
+        const description = req.body.description || '';
+        const tags = req.body.tags ? req.body.tags.split(',') : [];
+  
+        // Store metadata in DynamoDB
+        await storeMetadata(s3Key, title, description, tags, uploadTime);
+  
+        return {
+          imageUrl: file.location,
+          title,
+          description,
+          tags,
+          uploadTime
+        };
+      });
+  
+      const results = await Promise.all(promises);
+  
+      res.json(results);
+    } catch (err) {
+      console.error('Error uploading multiple images:', err);
+      res.status(500).json({ error: 'Failed to upload images' });
+    }
+  });
+  
 
 // Route to list all images and their metadata
 app.get('/images', async (req, res) => {
@@ -171,7 +278,7 @@ app.get('/images', async (req, res) => {
           title: metadata?.Title || '',
           description: metadata?.Description || '',
           tags: metadata?.Tags || [],
-          uploadTime: metadata?.UploadTime || '' // Include upload time
+          uploadTime: metadata?.UploadTime || ''
         }
       };
     });

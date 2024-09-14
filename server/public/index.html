@@ -3,91 +3,119 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Image Upload Test</title>
+  <title>Home</title>
 </head>
 <body>
-  <h1>Image Upload Test</h1>
-  
-  <!-- Single Image Upload Form -->
-  <h2>Upload Single Image</h2>
-  <form id="singleUploadForm" enctype="multipart/form-data">
-    <input type="file" name="image" accept="image/*" required>
-    <input type="text" name="title" placeholder="Title">
-    <textarea name="description" placeholder="Description"></textarea>
-    <input type="text" name="tags" placeholder="Tags (comma separated)">
-    <button type="submit">Upload Image</button>
-  </form>
+  <div id="userGreeting"></div>
+  <button id="logoutButton" style="display:none;">Logout</button>
+  <div id="authButtons" style="display:none;">
+    <a href="/login.html">Login</a>
+    <a href="/register.html">Register</a>
+  </div>
 
-  <h2>Upload Multiple Images</h2>
-  <form id="multipleUploadForm" enctype="multipart/form-data">
-    <input type="file" name="images" accept="image/*" multiple required>
-    <input type="text" name="title" placeholder="Title">
-    <textarea name="description" placeholder="Description"></textarea>
-    <input type="text" name="tags" placeholder="Tags (comma separated)">
-    <button type="submit">Upload Images</button>
-  </form>
+  <!-- Upload Form -->
+  <div id="uploadSection" style="display:none;">
+    <h2>Upload New Image</h2>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <label for="title">Title:</label>
+      <input type="text" id="title" name="title"><br><br>
+      <label for="description">Description:</label>
+      <textarea id="description" name="description"></textarea><br><br>
+      <label for="tags">Tags (comma separated):</label>
+      <input type="text" id="tags" name="tags"><br><br>
+      <label for="image">Choose image:</label>
+      <input type="file" id="image" name="image" accept="image/*" required><br><br>
+      <button type="submit">Upload</button>
+    </form>
+  </div>
 
-  <h2>List Images</h2>
-  <button id="listImagesButton">List All Images</button>
-  <div id="imagesList"></div>
+  <h1>Welcome to the Image Gallery</h1>
+  <div id="imageGallery"></div>
 
   <script>
-    document.getElementById('singleUploadForm').addEventListener('submit', async (e) => {
+    // Function to fetch and display user info
+    async function fetchUserInfo() {
+      const response = await fetch('/user');
+      const user = await response.json();
+
+      if (user.username) {
+        document.getElementById('userGreeting').textContent = `Hello, ${user.username}`;
+        document.getElementById('logoutButton').style.display = 'block';
+        document.getElementById('authButtons').style.display = 'none';
+        document.getElementById('uploadSection').style.display = 'block';
+      } else {
+        document.getElementById('userGreeting').textContent = '';
+        document.getElementById('logoutButton').style.display = 'none';
+        document.getElementById('authButtons').style.display = 'block';
+        document.getElementById('uploadSection').style.display = 'none';
+      }
+    }
+
+    // Logout button functionality
+    document.getElementById('logoutButton').addEventListener('click', async () => {
+      await fetch('/logout', { method: 'POST' });
+      window.location.reload();
+    });
+
+    // Upload form functionality
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const formData = new FormData(e.target);
-      try {
-        const response = await fetch('/upload/single', {
-          method: 'POST',
-          body: formData,
-        });
-        const result = await response.json();
-        alert(`Image uploaded: ${result.imageUrl}`);
-      } catch (err) {
-        console.error('Error uploading single image:', err);
+
+      const formData = new FormData(document.getElementById('uploadForm'));
+
+      const response = await fetch('/upload/single', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        alert('Upload successful!');
+        window.location.reload(); // Refresh to show the new image
+      } else {
+        alert('Upload failed!');
       }
     });
 
-    document.getElementById('multipleUploadForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      try {
-        const response = await fetch('/upload/multiple', {
-          method: 'POST',
-          body: formData,
-        });
-        const result = await response.json();
-        alert(`Images uploaded: ${result.map(img => img.imageUrl).join(', ')}`);
-      } catch (err) {
-        console.error('Error uploading multiple images:', err);
-      }
-    });
+    // Function to fetch and display images
+    async function fetchImages() {
+      const response = await fetch('/images');
+      const images = await response.json();
 
-    document.getElementById('listImagesButton').addEventListener('click', async () => {
-      try {
-        const response = await fetch('/images');
-        const result = await response.json();
-        const imagesList = document.getElementById('imagesList');
-        imagesList.innerHTML = '';
-        result.forEach(image => {
-          const imgElement = document.createElement('img');
-          imgElement.src = image.url;
-          imgElement.style.maxWidth = '200px';
-          imgElement.style.margin = '10px';
-          imagesList.appendChild(imgElement);
+      const gallery = document.getElementById('imageGallery');
+      gallery.innerHTML = ''; // Clear existing content
 
-          const info = document.createElement('div');
-          info.innerHTML = `
-            <strong>Title:</strong> ${image.metadata.title}<br>
-            <strong>Description:</strong> ${image.metadata.description}<br>
-            <strong>Tags:</strong> ${image.metadata.tags.join(', ')}<br>
-            <strong>Upload Time:</strong> ${image.metadata.uploadTime}<br><br>
-          `;
-          imagesList.appendChild(info);
-        });
-      } catch (err) {
-        console.error('Error listing images:', err);
-      }
-    });
+      images.forEach(image => {
+        const imgElement = document.createElement('img');
+        imgElement.src = image.url;
+        imgElement.alt = image.metadata.title;
+        imgElement.style.width = '200px'; // Adjust as needed
+
+        const titleElement = document.createElement('p');
+        titleElement.textContent = `Title: ${image.metadata.title}`;
+
+        const descriptionElement = document.createElement('p');
+        descriptionElement.textContent = `Description: ${image.metadata.description}`;
+
+        const tagsElement = document.createElement('p');
+        tagsElement.textContent = `Tags: ${image.metadata.tags.join(', ')}`;
+
+        const uploadTimeElement = document.createElement('p');
+        uploadTimeElement.textContent = `Uploaded at: ${image.metadata.uploadTime}`;
+
+        const imageContainer = document.createElement('div');
+        imageContainer.appendChild(imgElement);
+        imageContainer.appendChild(titleElement);
+        imageContainer.appendChild(descriptionElement);
+        imageContainer.appendChild(tagsElement);
+        imageContainer.appendChild(uploadTimeElement);
+
+        gallery.appendChild(imageContainer);
+      });
+    }
+
+    // Call functions on page load
+    fetchUserInfo();
+    fetchImages();
   </script>
 </body>
 </html>

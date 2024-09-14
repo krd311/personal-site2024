@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload</title>
+</head>
+<body>
+  <div id="userGreeting"></div>
+  <button id="logoutButton" style="display:none;">Logout</button>
+
+  <h1>Upload Images</h1>
+  <form id="uploadForm" enctype="multipart/form-data">
+    <label for="image">Select image:</label>
+    <input type="file" id="image" name="image" required><br><br>
+    <label for="title">Title:</label>
+    <input type="text" id="title" name="title"><br><br>
+    <label for="description">Description:</label>
+    <input type="text" id="description" name="description"><br><br>
+    <label for="tags">Tags (comma-separated):</label>
+    <input type="text" id="tags" name="tags"><br><br>
+    <button type="submit">Upload</button>
+  </form>
+
+  <script>
+    // Function to fetch and display user info
+    async function fetchUserInfo() {
+      const response = await fetch('/user');
+      const user = await response.json();
+
+      if (user.username) {
+        document.getElementById('userGreeting').textContent = `Hello, ${user.username}`;
+        document.getElementById('logoutButton').style.display = 'block';
+      } else {
+        document.getElementById('userGreeting').textContent = '';
+        document.getElementById('logoutButton').style.display = 'none';
+        window.location.href = '/login.html'; // Redirect to login if not authenticated
+      }
+    }
+
+    // Logout button functionality
+    document.getElementById('logoutButton').addEventListener('click', async () => {
+      await fetch('/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    // Handle form submission
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(document.getElementById('uploadForm'));
+
+      const response = await fetch('/upload/single', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        alert('Upload successful!');
+      } else {
+        alert('Upload failed!');
+      }
+    });
+
+    // Call fetchUserInfo on page load
+    fetchUserInfo();
+  </script>
+</body>
+</html>
