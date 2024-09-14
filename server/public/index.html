@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Upload Test</title>
+</head>
+<body>
+  <h1>Image Upload Test</h1>
+  
+  <!-- Single Image Upload Form -->
+  <h2>Upload Single Image</h2>
+  <form id="singleUploadForm" enctype="multipart/form-data">
+    <input type="file" name="image" accept="image/*" required>
+    <input type="text" name="title" placeholder="Title">
+    <textarea name="description" placeholder="Description"></textarea>
+    <input type="text" name="tags" placeholder="Tags (comma separated)">
+    <button type="submit">Upload Image</button>
+  </form>
+
+  <h2>Upload Multiple Images</h2>
+  <form id="multipleUploadForm" enctype="multipart/form-data">
+    <input type="file" name="images" accept="image/*" multiple required>
+    <input type="text" name="title" placeholder="Title">
+    <textarea name="description" placeholder="Description"></textarea>
+    <input type="text" name="tags" placeholder="Tags (comma separated)">
+    <button type="submit">Upload Images</button>
+  </form>
+
+  <h2>List Images</h2>
+  <button id="listImagesButton">List All Images</button>
+  <div id="imagesList"></div>
+
+  <script>
+    document.getElementById('singleUploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const response = await fetch('/upload/single', {
+          method: 'POST',
+          body: formData,
+        });
+        const result = await response.json();
+        alert(`Image uploaded: ${result.imageUrl}`);
+      } catch (err) {
+        console.error('Error uploading single image:', err);
+      }
+    });
+
+    document.getElementById('multipleUploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const response = await fetch('/upload/multiple', {
+          method: 'POST',
+          body: formData,
+        });
+        const result = await response.json();
+        alert(`Images uploaded: ${result.map(img => img.imageUrl).join(', ')}`);
+      } catch (err) {
+        console.error('Error uploading multiple images:', err);
+      }
+    });
+
+    document.getElementById('listImagesButton').addEventListener('click', async () => {
+      try {
+        const response = await fetch('/images');
+        const result = await response.json();
+        const imagesList = document.getElementById('imagesList');
+        imagesList.innerHTML = '';
+        result.forEach(image => {
+          const imgElement = document.createElement('img');
+          imgElement.src = image.url;
+          imgElement.style.maxWidth = '200px';
+          imgElement.style.margin = '10px';
+          imagesList.appendChild(imgElement);
+
+          const info = document.createElement('div');
+          info.innerHTML = `
+            <strong>Title:</strong> ${image.metadata.title}<br>
+            <strong>Description:</strong> ${image.metadata.description}<br>
+            <strong>Tags:</strong> ${image.metadata.tags.join(', ')}<br>
+            <strong>Upload Time:</strong> ${image.metadata.uploadTime}<br><br>
+          `;
+          imagesList.appendChild(info);
+        });
+      } catch (err) {
+        console.error('Error listing images:', err);
+      }
+    });
+  </script>
+</body>
+</html>
